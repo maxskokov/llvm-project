@@ -22,6 +22,14 @@ class BPFABIInfo : public DefaultABIInfo {
 public:
   BPFABIInfo(CodeGenTypes &CGT) : DefaultABIInfo(CGT) {}
 
+  /// Whether records that are non-trivial for the purpose of calls are passed
+  /// and returned as the C++ ABI requires. Clang 23 and earlier passed and
+  /// returned them in registers when they fit.
+  bool honorsCXXRecordABI() const {
+    return !getContext().getLangOpts().isCompatibleWith(
+        LangOptions::ClangABI::Ver23);
+  }
+
   // Classify an aggregate (struct/union) used as an argument or a return
   // value. Aggregates that fit in 1 or 2 registers are passed/returned
   // directly, coerced to an integer or a pair of 64-bit integers; larger
@@ -49,8 +57,15 @@ public:
   ABIArgInfo classifyArgumentType(QualType Ty) const {
     Ty = useFirstFieldIfTransparentUnion(Ty);
 
-    if (isAggregateTypeForABI(Ty))
+    if (isAggregateTypeForABI(Ty)) {
+      // Records with non-trivial destructors/copy-constructors should not be
+      // passed by value.
+      CGCXXABI::RecordArgABI RAA = getRecordArgABI(Ty, getCXXABI());
+      if (RAA != CGCXXABI::RAA_Default && honorsCXXRecordABI())
+        return getNaturalAlignIndirect(Ty, getDataLayout().getAllocaAddrSpace(),
+                                       RAA == CGCXXABI::RAA_DirectInMemory);
       return classifyAggregateType(Ty);
+    }
 
     if (const auto *ED = Ty->getAsEnumDecl())
       Ty = ED->getIntegerType();
@@ -87,7 +102,8 @@ public:
   }
 
   void computeInfo(CGFunctionInfo &FI) const override {
-    FI.getReturnInfo() = classifyReturnType(FI.getReturnType());
+    if (!honorsCXXRecordABI() || !getCXXABI().classifyReturnType(FI))
+      FI.getReturnInfo() = classifyReturnType(FI.getReturnType());
     for (auto &I : FI.arguments())
       I.info = classifyArgumentType(I.type);
   }

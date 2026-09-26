@@ -112,6 +112,13 @@ features cannot lower the translation-unit ABI level;
   for homogeneous aggregate classification.
   `-fclang-abi-compat=23` restores the previous behavior. (#GH218799)
 
+- On BPF, a C++ record that is non-trivial for the purpose of calls, such as
+  `std::unique_ptr` or `std::shared_ptr`, is now passed and returned
+  indirectly as the C++ ABI requires. Clang previously passed such a record in
+  one or two registers when it fit, which made the caller and the callee both
+  destroy it, and since Clang 23 also returned it in registers. C code is not
+  affected. `-fclang-abi-compat=23` restores the previous behavior. (#GH207686)
+
 ### AST Dumping Potentially Breaking Changes
 
 ### Clang Frontend Potentially Breaking Changes
